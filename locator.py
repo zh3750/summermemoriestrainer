@@ -1,14 +1,68 @@
 import ctypes
-import json
-import subprocess
 import struct
-from pathlib import Path
 
 import memory_trainer as mt
 
 
 VAR_IDS = [1, 3, 5, 23, 26, 27, 28, 39, 59, 65, 157, 158, 159, 320]
 ELEMENT_BASE = 4  # FixedArray stores length at offset 0, elements after that
+
+
+def smi_to_int(raw):
+    """Decode a V8 small-integer tagged value."""
+    if raw & 1:
+        return None
+    signed = raw - 0x100000000 if raw >= 0x80000000 else raw
+    return signed >> 1
+
+
+def _read32(handle, addr):
+    buf = ctypes.create_string_buffer(4)
+    read = ctypes.c_size_t(0)
+    if not mt.kernel32.ReadProcessMemory(
+        handle, ctypes.c_void_p(addr), buf, 4, ctypes.byref(read)
+    ):
+        return None
+    if read.value != 4:
+        return None
+    return struct.unpack('<I', buf.raw[:4])[0]
+
+
+def decode_tagged(handle, raw, addr):
+    """Turn a tagged V8 value into a Python number when possible."""
+    int_value = smi_to_int(raw)
+    if int_value is not None:
+        return int_value
+    buf = ctypes.create_string_buffer(8)
+    read = ctypes.c_size_t(0)
+    if mt.kernel32.ReadProcessMemory(
+        handle, ctypes.c_void_p(raw + 4), buf, 8, ctypes.byref(read)
+    ) and read.value == 8:
+        return struct.unpack('<d', buf.raw[:8])[0]
+    return None
+
+
+def read_var(handle, base, var_id):
+    addr = base + ELEMENT_BASE + 4 * var_id
+    raw = _read32(handle, addr)
+    if raw is None:
+        return None
+    return decode_tagged(handle, raw, addr)
+
+
+def write_var(handle, base, var_id, value):
+    addr = base + ELEMENT_BASE + 4 * var_id
+    packed = struct.pack('<I', int(value) << 1 & 0xFFFFFFFF)
+    written = ctypes.c_size_t(0)
+    return bool(
+        mt.kernel32.WriteProcessMemory(
+            handle,
+            ctypes.c_void_p(addr),
+            packed,
+            4,
+            ctypes.byref(written),
+        )
+    ) and written.value == 4
 
 
 def _valid_ptr(raw):
@@ -100,3 +154,125 @@ def write_party_gold(handle, gold_slot, value):
     ) and written.value == 4
 
 
+def _valid_array(handle, array_base):
+    length_raw = _read32(handle, array_base)
+    length_value = smi_to_int(length_raw) if length_raw is not None else None
+    if length_value is None or not (320 <= length_value <= 2000):
+        return None
+    vals = {var_id: read_var(handle, array_base, var_id) for var_id in VAR_IDS}
+    all_numeric = all(
+        isinstance(vals[var_id], (int, float)) for var_id in VAR_IDS
+    )
+    if not (
+        all_numeric
+        and 0 <= vals[23] <= 9999999
+        and 0 <= vals[27] <= 9999999
+        and 0 <= vals[28] <= 9999999
+        and 0 <= vals[39] <= 10
+        and 0 <= vals[59] <= 9999
+        and 10 <= vals[320] <= 9999999
+    ):
+        return None
+    return vals
+
+
+def _scan_by_length(handle, length):
+    pattern = struct.pack('<I', length << 1)
+    candidates = []
+    for base, region_size in mt.iter_regions(handle):
+        for offset in range(0, region_size, mt.CHUNK_SIZE):
+            size = min(mt.CHUNK_SIZE, region_size - offset)
+            buf = ctypes.create_string_buffer(size)
+            read = ctypes.c_size_t(0)
+            if not mt.kernel32.ReadProcessMemory(
+                handle,
+                ctypes.c_void_p(base + offset),
+                buf,
+                size,
+                ctypes.byref(read),
+            ):
+                continue
+            data = buf.raw[: read.value]
+            pos = 0
+            while True:
+                pos = data.find(pattern, pos)
+                if pos < 0:
+                    break
+                array_base = base + offset + pos
+                vals = _valid_array(handle, array_base)
+                if vals is not None:
+                    candidates.append((array_base, vals))
+                pos += 1
+    return candidates
+
+
+def _scan_by_max_stamina(handle):
+    pattern = struct.pack('<I', 100 << 1)
+    candidates = []
+    for base, region_size in mt.iter_regions(handle):
+        for offset in range(0, region_size, mt.CHUNK_SIZE):
+            size = min(mt.CHUNK_SIZE, region_size - offset)
+            buf = ctypes.create_string_buffer(size)
+            read = ctypes.c_size_t(0)
+            if not mt.kernel32.ReadProcessMemory(
+                handle,
+                ctypes.c_void_p(base + offset),
+                buf,
+                size,
+                ctypes.byref(read),
+            ):
+                continue
+            data = buf.raw[: read.value]
+            pos = 0
+            while True:
+                pos = data.find(pattern, pos)
+                if pos < 0:
+                    break
+                elem320 = base + offset + pos
+                array_base = elem320 - (ELEMENT_BASE + 4 * 320)
+                vals = _valid_array(handle, array_base)
+                if vals is not None:
+                    candidates.append((array_base, vals))
+                pos += 1
+    return candidates
+
+
+def _scan_candidates(handle, expected_length=None):
+    if expected_length:
+        return _scan_by_length(handle, expected_length)
+    found = _scan_by_max_stamina(handle)
+    if found:
+        return found
+    return _scan_by_length(handle, 661)
+
+
+def find_best_candidate(handle, expected_length=None, templates=None):
+    candidates = _scan_candidates(handle, expected_length)
+    if not candidates:
+        return None
+
+    def score(item):
+        base, vals = item
+        points = 0
+        if templates:
+            known = templates.get('values', {})
+            for var_id in VAR_IDS:
+                expected = known.get(var_id)
+                if expected and vals.get(var_id) in expected:
+                    points += 1
+        return points
+
+    candidates.sort(key=score, reverse=True)
+    best = candidates[0]
+    if templates and score(best) == 0:
+        return None
+    return best
+
+
+def find_game_pid():
+    pids = mt.list_game_processes()
+    if not pids:
+        return None
+    infos = [(pid, mt.process_working_set(pid)) for pid in pids]
+    best = max(range(len(infos)), key=lambda i: infos[i][1] or -1)
+    return pids[best]

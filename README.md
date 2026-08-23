@@ -2,6 +2,8 @@
 
 给《夏日狂想曲 / Summer Memories》用的单机修改器，双击打开窗口，点按钮就能改。
 
+![夏日狂想曲修改器 界面预览](preview.png)
+
 > 本项目完全由 Codex 模型 **deepseek-v4-flash** 所写。
 
 ## 功能
@@ -77,6 +79,7 @@ pyinstaller SummerMemoriesTrainer.spec
 | `save_utils.py` | RPG Maker MV 存档读写（lz-string 解压/压缩） |
 | `save_editor.mjs` | Node.js 存档修改脚本 |
 | `start_trainer_gui.bat` | 双击启动入口（自动请求管理员权限） |
+| `preview.png` | 界面预览图 |
 
 ## 注意
 

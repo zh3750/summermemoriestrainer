@@ -5,7 +5,7 @@ a = Analysis(
     ['D:/deepseek-harnsess/summer_memories_trainer/trainer_gui.py'],
     pathex=['D:/deepseek-harnsess/summer_memories_trainer/vendor'],
     binaries=[],
-    datas=[],
+    datas=[('D:/deepseek-harnsess/summer_memories_trainer/zuoshangjiao.ico', '.')],
     hiddenimports=[],
     hookspath=[],
     hooksconfig={},
@@ -36,4 +36,5 @@ exe = EXE(
     codesign_identity=None,
     entitlements_file=None,
     uac_admin=True,
+    icon=['D:/deepseek-harnsess/summer_memories_trainer/tubiao.ico'],
 )

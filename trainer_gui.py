@@ -4,7 +4,7 @@ import sys
 import threading
 import tkinter as tk
 from pathlib import Path
-from tkinter import filedialog, ttk
+from tkinter import filedialog, messagebox, ttk
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
@@ -16,9 +16,9 @@ import save_utils
 TRAINER_DIR = Path(__file__).resolve().parent
 BG = '#20242e'
 PANEL = '#2a3040'
-PANEL_LIGHT = '#333a4d'
+PANEL_LIGHT = '#3d465c'
 TEXT = '#e8ebf2'
-MUTED = '#9aa3b5'
+MUTED = '#b7c0cf'
 ACCENT = '#e8b34b'
 
 class TrainerApp(tk.Tk):
@@ -26,16 +26,15 @@ class TrainerApp(tk.Tk):
         ('结衣', 1, 2, 157),
         ('莉音', 3, 4, 158),
         ('美雪', 5, 6, 159),
+        ('姑父', None, 9, None),
     ]
 
     CUSTOM_IDS = {
         '体力': 27,
         '体力上限': 320,
         '行动点': 65,
-        '金钱': 23,
         '回忆点': 28,
         '时间带': 39,
-        '日期': 59,
         '性欲': 26,
         '结衣好感': 1,
         '莉音好感': 3,
@@ -58,14 +57,13 @@ class TrainerApp(tk.Tk):
         self.handle = None
         self.base = None
         self.gold_slot = None
-        self.freezer = mt.Freezer()
-        self.freezer.start()
         self.msg_queue = queue.Queue()
         self.game_root = save_utils.find_game_root()
         self.item_names = save_utils.load_item_names(self.game_root)
         self.item_follow = True
 
         self._build_style()
+        self._set_window_icon()
         self._build_ui()
 
         self.protocol('WM_DELETE_WINDOW', self.on_close)
@@ -81,8 +79,8 @@ class TrainerApp(tk.Tk):
             pass
         style.configure(
             'TButton',
-            font=('Microsoft YaHei UI', 10, 'bold'),
-            padding=(9, 6),
+            font=('Microsoft YaHei UI', 11, 'bold'),
+            padding=(12, 8),
             background='#3f485e',
             foreground=TEXT,
             borderwidth=0,
@@ -104,6 +102,7 @@ class TrainerApp(tk.Tk):
         )
         style.configure(
             'TCombobox',
+            font=('Microsoft YaHei UI', 11),
             fieldbackground=PANEL_LIGHT,
             background=PANEL_LIGHT,
             foreground=TEXT,
@@ -111,6 +110,20 @@ class TrainerApp(tk.Tk):
             bordercolor=PANEL,
             padding=5,
         )
+
+    def _set_window_icon(self):
+        bases = []
+        if getattr(sys, 'frozen', False):
+            bases.append(Path(sys._MEIPASS))
+        bases.append(TRAINER_DIR)
+        for base in bases:
+            ico = base / 'zuoshangjiao.ico'
+            if ico.exists():
+                try:
+                    self.iconbitmap(str(ico))
+                except tk.TclError:
+                    pass
+                return
 
     def _panel(self, parent):
         return tk.Frame(parent, bg=PANEL, padx=14, pady=12)
@@ -139,7 +152,7 @@ class TrainerApp(tk.Tk):
             text='单机自用，改完即玩',
             bg='#171a21',
             fg=MUTED,
-            font=('Microsoft YaHei UI', 10),
+            font=('Microsoft YaHei UI', 11),
         ).pack(side='left', padx=12, pady=(4, 0))
 
         status = tk.Frame(self, bg=BG, padx=18, pady=10)
@@ -158,7 +171,7 @@ class TrainerApp(tk.Tk):
             textvariable=self.locate_status,
             bg=BG,
             fg=MUTED,
-            font=('Microsoft YaHei UI', 10),
+            font=('Microsoft YaHei UI', 11),
         ).pack(side='left', padx=14)
         ttk.Button(
             status,
@@ -169,11 +182,6 @@ class TrainerApp(tk.Tk):
             status,
             text='游戏目录',
             command=self.choose_game_root,
-        ).pack(side='right', padx=8)
-        ttk.Button(
-            status,
-            text='解除全部锁定',
-            command=self.unfreeze_all,
         ).pack(side='right', padx=8)
 
         scroll_wrap = tk.Frame(self, bg=BG)
@@ -220,7 +228,7 @@ class TrainerApp(tk.Tk):
             fg=TEXT,
             insertbackground=TEXT,
             relief='flat',
-            font=('Microsoft YaHei UI', 9),
+            font=('Microsoft YaHei UI', 11),
             padx=8,
             pady=6,
         )
@@ -276,13 +284,11 @@ class TrainerApp(tk.Tk):
     def _build_live_rows(self, parent):
         self.value_vars = {}
         rows = [
-            ('体力', 27, [('回满', 'refill'), ('锁9999', 'freeze_stamina')]),
+            ('体力', 27, [('回满', 'refill')]),
             ('体力上限', 320, []),
-            ('行动点', 65, [('9999', 'action_boost'), ('锁', 'freeze_action')]),
-            ('金钱', 23, [('99999', 'money')]),
+            ('行动点', 65, [('9999', 'action_boost')]),
             ('回忆点', 28, [('9999', 'memory')]),
-            ('性欲', 26, [('9999', 'lust_boost'), ('锁', 'freeze_lust')]),
-            ('日期', 59, [('-1', 'day_minus'), ('+1', 'day_plus'), ('冻结', 'freeze_day')]),
+            ('性欲', 26, [('清零', 'lust_clear')]),
         ]
         for label, var_id, actions in rows:
             row = tk.Frame(parent, bg=PANEL, pady=3)
@@ -294,7 +300,7 @@ class TrainerApp(tk.Tk):
                 anchor='w',
                 bg=PANEL,
                 fg=MUTED,
-                font=('Microsoft YaHei UI', 10),
+                font=('Microsoft YaHei UI', 11),
             ).pack(side='left')
             var = tk.StringVar(value='-')
             self.value_vars[var_id] = var
@@ -324,10 +330,10 @@ class TrainerApp(tk.Tk):
         ).pack(fill='x', pady=(12, 0))
         tk.Label(
             parent,
-            text='行动点会被时间推进重置，锁住才不会变；解除全部锁定可关闭。',
+            text='行动点会被时间推进重置，用完可以再点一次。',
             bg=PANEL,
             fg=MUTED,
-            font=('Microsoft YaHei UI', 9),
+            font=('Microsoft YaHei UI', 11),
             justify='left',
             wraplength=300,
         ).pack(anchor='w', pady=(10, 0))
@@ -342,7 +348,7 @@ class TrainerApp(tk.Tk):
             anchor='w',
             bg=PANEL,
             fg=MUTED,
-            font=('Microsoft YaHei UI', 10),
+            font=('Microsoft YaHei UI', 11),
         ).pack(side='left')
         self.value_vars[39] = tk.StringVar(value='-')
         tk.Label(
@@ -357,7 +363,6 @@ class TrainerApp(tk.Tk):
         for text, action in [
             ('-1', 'time_minus'),
             ('+1', 'time_plus'),
-            ('冻结', 'freeze_time'),
         ]:
             ttk.Button(
                 top,
@@ -368,11 +373,11 @@ class TrainerApp(tk.Tk):
         bottom = tk.Frame(parent, bg=PANEL, pady=3)
         bottom.pack(fill='x', pady=(0, 2))
         for label, value in [
-            ('早', 1),
-            ('中', 2),
-            ('黄昏', 3),
-            ('晚', 4),
-            ('深夜', 5),
+            ('早', 0),
+            ('中', 1),
+            ('黄昏', 2),
+            ('晚', 3),
+            ('深夜', 4),
         ]:
             ttk.Button(
                 bottom,
@@ -403,7 +408,7 @@ class TrainerApp(tk.Tk):
                 anchor='w',
                 bg=PANEL,
                 fg=MUTED,
-                font=('Microsoft YaHei UI', 10),
+                font=('Microsoft YaHei UI', 11),
             ).pack(side='left')
             var = tk.StringVar(value='-')
             self.actor_vals[key] = var
@@ -418,79 +423,118 @@ class TrainerApp(tk.Tk):
             ).pack(side='left')
 
         self.actor_custom_aff = tk.StringVar(value='9999')
+        self.actor_custom_guard = tk.StringVar(value='0')
         self.actor_custom_task = tk.StringVar(value='9999')
-        aff_row = tk.Frame(parent, bg=PANEL)
-        aff_row.pack(fill='x', pady=(10, 0))
+        self.aff_row = tk.Frame(parent, bg=PANEL)
+        self.aff_row.pack(fill='x', pady=(10, 0))
         tk.Label(
-            aff_row,
+            self.aff_row,
             text='好感',
             bg=PANEL,
             fg=MUTED,
-            font=('Microsoft YaHei UI', 10),
+            font=('Microsoft YaHei UI', 11),
         ).pack(side='left')
-        tk.Entry(
-            aff_row,
+        aff_entry = tk.Entry(
+            self.aff_row,
             textvariable=self.actor_custom_aff,
             width=8,
             bg='#171a21',
             fg=TEXT,
             insertbackground=TEXT,
             relief='flat',
-            font=('Microsoft YaHei UI', 10),
+            font=('Microsoft YaHei UI', 11),
             justify='center',
-        ).pack(side='left', padx=6)
-        ttk.Button(
-            aff_row,
+        )
+        aff_entry.pack(side='left', padx=6)
+        aff_write = ttk.Button(
+            self.aff_row,
             text='写入',
             command=self.actor_write_aff,
-        ).pack(side='left', padx=2)
-        ttk.Button(
-            aff_row,
-            text='锁',
-            command=self.actor_freeze_aff,
-        ).pack(side='left', padx=2)
-        ttk.Button(
-            aff_row,
+        )
+        aff_write.pack(side='left', padx=2)
+        aff_boost = ttk.Button(
+            self.aff_row,
             text='9999',
             command=self.actor_boost_aff,
-        ).pack(side='left', padx=2)
+        )
+        aff_boost.pack(side='left', padx=2)
+        self.aff_widgets = [aff_entry, aff_write, aff_boost]
 
-        task_row = tk.Frame(parent, bg=PANEL)
-        task_row.pack(fill='x', pady=(8, 0))
+        self.guard_row = tk.Frame(parent, bg=PANEL)
+        self.guard_row.pack(fill='x', pady=(8, 0))
         tk.Label(
-            task_row,
+            self.guard_row,
+            text='警戒',
+            bg=PANEL,
+            fg=MUTED,
+            font=('Microsoft YaHei UI', 11),
+        ).pack(side='left')
+        guard_entry = tk.Entry(
+            self.guard_row,
+            textvariable=self.actor_custom_guard,
+            width=8,
+            bg='#171a21',
+            fg=TEXT,
+            insertbackground=TEXT,
+            relief='flat',
+            font=('Microsoft YaHei UI', 11),
+            justify='center',
+        )
+        guard_entry.pack(side='left', padx=6)
+        guard_write = ttk.Button(
+            self.guard_row,
+            text='写入',
+            command=self.actor_write_guard,
+        )
+        guard_write.pack(side='left', padx=2)
+        guard_clear = ttk.Button(
+            self.guard_row,
+            text='清零',
+            command=self.actor_clear_guard,
+        )
+        guard_clear.pack(side='left', padx=2)
+        self.guard_widgets = [guard_entry, guard_write, guard_clear]
+
+        self.task_row = tk.Frame(parent, bg=PANEL)
+        self.task_row.pack(fill='x', pady=(8, 0))
+        tk.Label(
+            self.task_row,
             text='课题',
             bg=PANEL,
             fg=MUTED,
-            font=('Microsoft YaHei UI', 10),
+            font=('Microsoft YaHei UI', 11),
         ).pack(side='left')
-        tk.Entry(
-            task_row,
+        task_entry = tk.Entry(
+            self.task_row,
             textvariable=self.actor_custom_task,
             width=8,
             bg='#171a21',
             fg=TEXT,
             insertbackground=TEXT,
             relief='flat',
-            font=('Microsoft YaHei UI', 10),
+            font=('Microsoft YaHei UI', 11),
             justify='center',
-        ).pack(side='left', padx=6)
-        ttk.Button(
-            task_row,
+        )
+        task_entry.pack(side='left', padx=6)
+        task_write = ttk.Button(
+            self.task_row,
             text='写入',
             command=self.actor_write_task,
-        ).pack(side='left', padx=2)
-        ttk.Button(
-            task_row,
+        )
+        task_write.pack(side='left', padx=2)
+        task_boost = ttk.Button(
+            self.task_row,
             text='9999',
             command=self.actor_boost_task,
-        ).pack(side='left', padx=2)
+        )
+        task_boost.pack(side='left', padx=2)
+        self.task_widgets = [task_entry, task_write, task_boost]
         tk.Label(
             parent,
-            text='选好人以后，改好感或课题会作用在当前人物身上。',
+            text='选好人以后，好感/警戒/课题会作用在当前人物身上；姑父只有警戒度可改。',
             bg=PANEL,
             fg=MUTED,
-            font=('Microsoft YaHei UI', 9),
+            font=('Microsoft YaHei UI', 11),
             justify='left',
             wraplength=280,
         ).pack(anchor='w', pady=(10, 0))
@@ -507,13 +551,21 @@ class TrainerApp(tk.Tk):
             return
         _, aff_id, guard_id, task_id = self._actor_ids()
         values = {
-            'aff': locator.read_var(self.handle, self.base, aff_id),
-            'guard': locator.read_var(self.handle, self.base, guard_id),
-            'task': locator.read_var(self.handle, self.base, task_id),
+            'aff': locator.read_var(self.handle, self.base, aff_id) if aff_id is not None else None,
+            'guard': locator.read_var(self.handle, self.base, guard_id) if guard_id is not None else None,
+            'task': locator.read_var(self.handle, self.base, task_id) if task_id is not None else None,
         }
         for key, var in self.actor_vals.items():
             value = values.get(key)
             var.set(str(value) if value is not None else '-')
+        self.update_actor_fields()
+
+    def update_actor_fields(self):
+        _, aff_id, _, task_id = self._actor_ids()
+        for widget in self.aff_widgets:
+            widget.configure(state='normal' if aff_id is not None else 'disabled')
+        for widget in self.task_widgets:
+            widget.configure(state='normal' if task_id is not None else 'disabled')
 
     def _build_save_panel(self, parent):
         tk.Label(
@@ -521,18 +573,20 @@ class TrainerApp(tk.Tk):
             text='技能点、真实金钱、背包物品改存档最稳。',
             bg=PANEL,
             fg=MUTED,
-            font=('Microsoft YaHei UI', 9),
+            font=('Microsoft YaHei UI', 11),
             justify='left',
             wraplength=300,
         ).pack(anchor='w', pady=(4, 8))
 
         self.slot_var = tk.StringVar(value='1号存档位')
-        ttk.Combobox(
+        slot_combo = ttk.Combobox(
             parent,
             textvariable=self.slot_var,
             values=['1号存档位', '2号存档位'],
             state='readonly',
-        ).pack(fill='x')
+        )
+        slot_combo.pack(fill='x')
+        slot_combo.bind('<<ComboboxSelected>>', lambda _: self.refresh_backup_list())
 
         sp_row = tk.Frame(parent, bg=PANEL)
         sp_row.pack(fill='x', pady=(8, 0))
@@ -545,7 +599,7 @@ class TrainerApp(tk.Tk):
             fg=TEXT,
             insertbackground=TEXT,
             relief='flat',
-            font=('Microsoft YaHei UI', 10),
+            font=('Microsoft YaHei UI', 11),
             justify='center',
         ).pack(side='left', fill='x', expand=True)
         ttk.Button(
@@ -556,18 +610,62 @@ class TrainerApp(tk.Tk):
 
         gold_row = tk.Frame(parent, bg=PANEL)
         gold_row.pack(fill='x', pady=(8, 0))
+        self.custom_gold_var = tk.StringVar(value='9999')
+        tk.Entry(
+            gold_row,
+            textvariable=self.custom_gold_var,
+            width=8,
+            bg='#171a21',
+            fg=TEXT,
+            insertbackground=TEXT,
+            relief='flat',
+            font=('Microsoft YaHei UI', 11),
+            justify='center',
+        ).pack(side='left', fill='x', expand=True)
         ttk.Button(
             gold_row,
-            text='金钱最大 99999999',
-            command=lambda: self.edit_save(['gold=99999999']),
-        ).pack(fill='x')
+            text='金币写入',
+            command=self.custom_gold,
+        ).pack(side='right', padx=(6, 0))
+        tk.Label(
+            parent,
+            text='金币最多 9999，填太大游戏会坏。',
+            bg=PANEL,
+            fg=MUTED,
+            font=('Microsoft YaHei UI', 11),
+        ).pack(anchor='w', pady=(6, 0))
+        tk.Label(
+            parent,
+            text='备份存档（自己选，不会自动覆盖）',
+            bg=PANEL,
+            fg=ACCENT,
+            font=('Microsoft YaHei UI', 11, 'bold'),
+        ).pack(anchor='w', pady=(12, 4))
+        backup_row = tk.Frame(parent, bg=PANEL)
+        backup_row.pack(fill='x')
+        self.backup_combo = ttk.Combobox(
+            backup_row,
+            state='readonly',
+        )
+        self.backup_combo.pack(side='left', fill='x', expand=True)
+        ttk.Button(
+            backup_row,
+            text='恢复所选',
+            command=self.restore_backup_save,
+        ).pack(side='right', padx=(6, 0))
+        ttk.Button(
+            parent,
+            text='备份当前存档',
+            command=self.backup_save,
+        ).pack(fill='x', pady=(6, 0))
+        self.refresh_backup_list()
 
         item_label = tk.Label(
             parent,
             text='背包物品（菜单里选中的会自动跟过来）',
             bg=PANEL,
             fg=MUTED,
-            font=('Microsoft YaHei UI', 9),
+            font=('Microsoft YaHei UI', 11),
         ).pack(anchor='w', pady=(10, 4))
         self.item_combo = ttk.Combobox(
             parent,
@@ -591,7 +689,7 @@ class TrainerApp(tk.Tk):
             fg=TEXT,
             insertbackground=TEXT,
             relief='flat',
-            font=('Microsoft YaHei UI', 10),
+            font=('Microsoft YaHei UI', 11),
             justify='center',
         ).pack(side='left', fill='x', expand=True)
         ttk.Button(
@@ -616,10 +714,10 @@ class TrainerApp(tk.Tk):
                     'stamina=9999',
                     'max=9999',
                     'action=9999',
-                    'money=99999',
+                    'money=9999',
                     'memory=9999',
                     'sp=9999',
-                    'gold=99999999',
+                    'gold=9999',
                     'item=all:99',
                     '1=9999',
                     '3=9999',
@@ -636,7 +734,7 @@ class TrainerApp(tk.Tk):
             text='存档修改后重进游戏读档才显示，会自动备份。',
             bg=PANEL,
             fg=MUTED,
-            font=('Microsoft YaHei UI', 9),
+            font=('Microsoft YaHei UI', 11),
             justify='left',
             wraplength=300,
         ).pack(anchor='w', pady=(8, 0))
@@ -675,7 +773,7 @@ class TrainerApp(tk.Tk):
             fg=TEXT,
             insertbackground=TEXT,
             relief='flat',
-            font=('Microsoft YaHei UI', 10),
+            font=('Microsoft YaHei UI', 11),
             justify='center',
         ).pack(side='left', padx=(8, 0))
         ttk.Button(
@@ -683,17 +781,12 @@ class TrainerApp(tk.Tk):
             text='写入',
             command=self.custom_write,
         ).pack(side='left', padx=(8, 0))
-        ttk.Button(
-            row,
-            text='锁定',
-            command=self.custom_freeze,
-        ).pack(side='left', padx=(6, 0))
         tk.Label(
             parent,
-            text='选项目、填任意整数，写入立即生效；锁定会持续保持。',
+            text='选项目、填任意整数，写入立即生效。',
             bg=PANEL,
             fg=MUTED,
-            font=('Microsoft YaHei UI', 9),
+            font=('Microsoft YaHei UI', 11),
         ).pack(anchor='w', pady=(8, 0))
 
     def _log(self, text):
@@ -719,6 +812,8 @@ class TrainerApp(tk.Tk):
                     self.refresh_actor()
                 elif kind == 'log':
                     self._log(msg[1])
+                elif kind == 'backups':
+                    self.refresh_backup_list()
                 elif kind == 'error':
                     self.game_status.set('未连接')
                     self.locate_status.set(msg[1])
@@ -777,8 +872,7 @@ class TrainerApp(tk.Tk):
                 )
                 return
             base, vals = candidate
-            gold_slot = locator.find_party_gold_slot(handle, base)
-            self.msg_queue.put(('connected', pid, handle, base, vals, gold_slot))
+            self.msg_queue.put(('connected', pid, handle, base, vals, None))
         except Exception as exc:
             self.msg_queue.put(('error', f'连接出错：{exc}'))
 
@@ -795,13 +889,6 @@ class TrainerApp(tk.Tk):
         self._log(f'已写入：{var_id} = {value}' if ok else '写入失败')
         return ok
 
-    def _freeze(self, var_id, value):
-        if not self._ready():
-            return
-        addr = self.base + locator.ELEMENT_BASE + 4 * var_id
-        self.freezer.add(self.handle, addr, int(value) << 1 & 0xFFFFFFFF, 'u32')
-        self._log(f'已锁定：{var_id} = {value}')
-
     def refill(self):
         if not self._ready():
             return
@@ -809,96 +896,38 @@ class TrainerApp(tk.Tk):
         target = max_value if isinstance(max_value, (int, float)) and max_value > 0 else 9999
         self._write(27, int(target))
 
-    def freeze_stamina(self):
-        self._freeze(27, 9999)
-
-    def money(self):
-        if not self._ready():
-            return
-        self._write(23, 99999)
-        if self.gold_slot:
-            ok = locator.write_party_gold(self.handle, self.gold_slot, 99999)
-            self._log('真实金钱也已写入' if ok else '真实金钱写入失败')
-        else:
-            self._log('没找到真实金钱位置，请用存档修改金钱最大。')
-
     def memory(self):
         self._write(28, 9999)
 
     def action_boost(self):
         self._write(65, 9999)
 
-    def freeze_action(self):
-        self._freeze(65, 9999)
-
-    def lust_boost(self):
-        self._write(26, 9999)
-
-    def freeze_lust(self):
-        self._freeze(26, 9999)
+    def lust_clear(self):
+        self._write(26, 0)
+        self._log('性欲已清零')
 
     def time_plus(self):
         if not self._ready():
             return
         current = locator.read_var(self.handle, self.base, 39)
-        value = 1 if current is None or int(current) >= 5 else int(current) + 1
+        value = 0 if current is None or int(current) >= 4 else int(current) + 1
         self._write(39, value)
 
     def time_minus(self):
         if not self._ready():
             return
         current = locator.read_var(self.handle, self.base, 39)
-        value = 5 if current is None or int(current) <= 1 else int(current) - 1
+        value = 4 if current is None or int(current) <= 0 else int(current) - 1
         self._write(39, value)
 
     def time_set(self, value):
         self._write(39, value)
 
-    def freeze_time(self):
-        if not self._ready():
-            return
-        current = locator.read_var(self.handle, self.base, 39)
-        day = locator.read_var(self.handle, self.base, 59)
-        if current is not None:
-            self._freeze(39, int(current))
-        if day is not None:
-            self._freeze(59, int(day))
-        self._log('时间带和日期已一起锁定。')
-
-    def day_plus(self):
-        if not self._ready():
-            return
-        current = locator.read_var(self.handle, self.base, 59)
-        value = 30 if current is None or int(current) >= 30 else int(current) + 1
-        if int(current or 1) >= 30:
-            self._log('日期已经是第 30 天了。')
-            return
-        self._write(59, value)
-
-    def day_minus(self):
-        if not self._ready():
-            return
-        current = locator.read_var(self.handle, self.base, 59)
-        value = 1 if current is None else max(1, int(current) - 1)
-        if int(current or 1) <= 1:
-            self._log('日期已经是第 1 天了。')
-            return
-        self._write(59, value)
-
-    def freeze_day(self):
-        if not self._ready():
-            return
-        current = locator.read_var(self.handle, self.base, 59)
-        if current is not None:
-            self._freeze(59, int(current))
-
     def mega_boost(self):
         for var_id, value in [
-            (23, 99999),
             (27, 9999),
             (28, 9999),
             (65, 9999),
-            (26, 9999),
             (1, 9999),
             (3, 9999),
             (5, 9999),
@@ -907,17 +936,14 @@ class TrainerApp(tk.Tk):
             (159, 9999),
         ]:
             self._write(var_id, value)
-        if self.gold_slot:
-            locator.write_party_gold(self.handle, self.gold_slot, 99999)
-
-    def unfreeze_all(self):
-        self.freezer.remove(remove_all=True)
-        self._log('已解除所有锁定。')
 
     def actor_write_aff(self):
         if not self._ready():
             return
         _, aff_id, _, _ = self._actor_ids()
+        if aff_id is None:
+            self._log('姑父没有好感度。')
+            return
         try:
             value = int(self.actor_custom_aff.get().strip())
         except ValueError:
@@ -925,27 +951,39 @@ class TrainerApp(tk.Tk):
             return
         self._write(aff_id, value)
 
-    def actor_freeze_aff(self):
-        if not self._ready():
-            return
-        _, aff_id, _, _ = self._actor_ids()
-        try:
-            value = int(self.actor_custom_aff.get().strip())
-        except ValueError:
-            self._log('好感值请输入整数。')
-            return
-        self._freeze(aff_id, value)
-
     def actor_boost_aff(self):
         if not self._ready():
             return
         _, aff_id, _, _ = self._actor_ids()
+        if aff_id is None:
+            self._log('姑父没有好感度。')
+            return
         self._write(aff_id, 9999)
+
+    def actor_write_guard(self):
+        if not self._ready():
+            return
+        _, _, guard_id, _ = self._actor_ids()
+        try:
+            value = int(self.actor_custom_guard.get().strip())
+        except ValueError:
+            self._log('警戒度请输入整数。')
+            return
+        self._write(guard_id, value)
+
+    def actor_clear_guard(self):
+        if not self._ready():
+            return
+        _, _, guard_id, _ = self._actor_ids()
+        self._write(guard_id, 0)
 
     def actor_write_task(self):
         if not self._ready():
             return
         _, _, _, task_id = self._actor_ids()
+        if task_id is None:
+            self._log('姑父没有课题。')
+            return
         try:
             value = int(self.actor_custom_task.get().strip())
         except ValueError:
@@ -957,6 +995,9 @@ class TrainerApp(tk.Tk):
         if not self._ready():
             return
         _, _, _, task_id = self._actor_ids()
+        if task_id is None:
+            self._log('姑父没有课题。')
+            return
         self._write(task_id, 9999)
 
     def _custom_target(self):
@@ -973,11 +1014,6 @@ class TrainerApp(tk.Tk):
         if target:
             self._write(target[0], target[1])
 
-    def custom_freeze(self):
-        target = self._custom_target()
-        if target:
-            self._freeze(target[0], target[1])
-
     def custom_sp(self):
         try:
             value = int(self.custom_sp_var.get().strip())
@@ -985,6 +1021,73 @@ class TrainerApp(tk.Tk):
             self._log('技能点请输入整数。')
             return
         self.edit_save([f'sp={value}'])
+
+    def custom_gold(self):
+        if not self.game_root:
+            self._log('还没找到游戏目录，请先点“游戏目录”选择。')
+            return
+        try:
+            value = int(self.custom_gold_var.get().strip())
+        except ValueError:
+            self._log('金币请输入整数。')
+            return
+        if value < 0:
+            value = 0
+        if value > 9999:
+            self._log('金币最多 9999，已按 9999 写入。')
+            value = 9999
+        self.edit_save([f'gold={value}'])
+
+    def _current_slot(self):
+        return 1 if self.slot_var.get().startswith('1') else 2
+
+    def refresh_backup_list(self):
+        if not self.game_root:
+            self.backup_combo['values'] = []
+            return
+        names = save_utils.list_backups(self.game_root, self._current_slot())
+        self.backup_combo['values'] = names
+        if names:
+            self.backup_combo.set(names[0])
+        else:
+            self.backup_combo.set('')
+
+    def backup_save(self):
+        if not self.game_root:
+            self._log('还没找到游戏目录，请先点“游戏目录”选择。')
+            return
+        try:
+            name = save_utils.create_backup(
+                self.game_root,
+                self._current_slot(),
+            )
+            self.refresh_backup_list()
+            self._log(f'已手动备份：{name}')
+        except Exception as exc:
+            self._log(f'备份失败：{exc}')
+
+    def restore_backup_save(self):
+        if not self.game_root:
+            self._log('还没找到游戏目录，请先点“游戏目录”选择。')
+            return
+        name = self.backup_combo.get()
+        if not name:
+            self._log('没有可恢复的备份，先点“备份当前存档”。')
+            return
+        if not messagebox.askyesno(
+            '恢复备份',
+            f'确定用 {name} 覆盖当前存档吗？',
+        ):
+            return
+        try:
+            path = save_utils.restore_backup(
+                self.game_root,
+                self._current_slot(),
+                name,
+            )
+            self._log(f'已恢复备份：{path}')
+        except Exception as exc:
+            self._log(f'恢复失败：{exc}')
 
     def edit_item(self):
         item_id = self._selected_item_id()
@@ -1003,7 +1106,7 @@ class TrainerApp(tk.Tk):
         if not self.game_root:
             self._log('还没找到游戏目录，请先点“游戏目录”选择。')
             return
-        slot = 1 if self.slot_var.get().startswith('1') else 2
+        slot = self._current_slot()
         threading.Thread(
             target=self._save_worker,
             args=(slot, list(edits)),
@@ -1016,6 +1119,7 @@ class TrainerApp(tk.Tk):
             self.msg_queue.put(
                 ('log', '存档已修改，重进游戏读档即可看到（已自动备份）。')
             )
+            self.msg_queue.put(('backups',))
         except Exception as exc:
             self.msg_queue.put(('log', f'存档修改出错：{exc}'))
 
@@ -1040,7 +1144,6 @@ class TrainerApp(tk.Tk):
                 self.item_combo.set(f'{item_id} {name}')
 
     def on_close(self):
-        self.freezer.stop()
         if self.handle:
             mt.kernel32.CloseHandle(self.handle)
         self.destroy()

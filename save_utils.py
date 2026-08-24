@@ -227,3 +227,42 @@ def edit_save(root, slot, edits):
 
     path.write_text(LZ.compressToBase64(_dump(data)), encoding='utf-8')
     return messages
+
+
+def list_backups(root, slot):
+    root = Path(root)
+    save_dir = root / 'www' / 'save'
+    base = f'file{slot}.rpgsave'
+    if not save_dir.is_dir():
+        return []
+    names = []
+    for path in sorted(save_dir.glob(base + '.bak*')):
+        names.append(path.name)
+    return names
+
+
+def create_backup(root, slot):
+    root = Path(root)
+    path = root / 'www' / 'save' / f'file{slot}.rpgsave'
+    backup = path.with_suffix('.rpgsave.bak')
+    if backup.exists():
+        stamp = path.parent / (
+            f'file{slot}.rpgsave.bak-'
+            + str(path.stat().st_mtime_ns)
+        )
+        backup.rename(stamp)
+    backup.write_text(path.read_text(encoding='utf-8'), encoding='utf-8')
+    return backup.name
+
+
+def restore_backup(root, slot, backup_name=None):
+    root = Path(root)
+    path = root / 'www' / 'save' / f'file{slot}.rpgsave'
+    if backup_name:
+        backup = root / 'www' / 'save' / backup_name
+    else:
+        backup = path.with_suffix('.rpgsave.bak')
+    if not backup.exists():
+        raise FileNotFoundError(f'没有找到备份存档：{backup}')
+    path.write_text(backup.read_text(encoding='utf-8'), encoding='utf-8')
+    return str(backup)

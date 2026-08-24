@@ -69,9 +69,80 @@ def _valid_ptr(raw):
     return raw is not None and 0x10000 <= raw < 0x7FFF0000 and raw & 1 == 0
 
 
-def find_party_gold_slot(handle, base):
+def find_game_party_object(handle):
+    """Locate the Game_Party instance through the global $gameParty string."""
+    name = b'$gameParty'
+    data_pattern = name + b'\x00\x00'
+    strings = set()
+    for region_base, region_size in mt.iter_regions(handle):
+        for off in range(0, region_size, mt.CHUNK_SIZE):
+            length = min(mt.CHUNK_SIZE, region_size - off)
+            buf = ctypes.create_string_buffer(length)
+            read = ctypes.c_size_t(0)
+            if not mt.kernel32.ReadProcessMemory(
+                handle,
+                ctypes.c_void_p(region_base + off),
+                buf,
+                length,
+                ctypes.byref(read),
+            ):
+                continue
+            data = buf.raw[: read.value]
+            pos = 0
+            while True:
+                pos = data.find(data_pattern, pos)
+                if pos < 0:
+                    break
+                s = region_base + off + pos - 12
+                map_ptr = _read32(handle, s)
+                length_smi = smi_to_int(_read32(handle, s + 8)) if _read32(handle, s + 8) is not None else None
+                if _valid_ptr(map_ptr) and length_smi == len(name):
+                    strings.add(s)
+                pos += 1
+    if not strings:
+        return None
+
+    for region_base, region_size in mt.iter_regions(handle):
+        for off in range(0, region_size, mt.CHUNK_SIZE):
+            length = min(mt.CHUNK_SIZE, region_size - off)
+            buf = ctypes.create_string_buffer(length)
+            read = ctypes.c_size_t(0)
+            if not mt.kernel32.ReadProcessMemory(
+                handle,
+                ctypes.c_void_p(region_base + off),
+                buf,
+                length,
+                ctypes.byref(read),
+            ):
+                continue
+            data = buf.raw[: read.value]
+            for s in list(strings):
+                pattern = struct.pack('<I', s)
+                pos = 0
+                while True:
+                    pos = data.find(pattern, pos)
+                    if pos < 0:
+                        break
+                    ref = region_base + off + pos
+                    value = _read32(handle, ref + 4)
+                    if _valid_ptr(value):
+                        obj_map = _read32(handle, value)
+                        gold_raw = _read32(handle, value + 16)
+                        steps_raw = _read32(handle, value + 20)
+                        if (
+                            _valid_ptr(obj_map)
+                            and smi_to_int(gold_raw) is not None
+                            and smi_to_int(steps_raw) is not None
+                        ):
+                            return value
+                    pos += 1
+    return None
+
+
+def find_party_gold_slot(handle, base, hint=None):
     """Locate the real gold slot on the Game_Party object in V8 memory."""
-    hint = read_var(handle, base, 23)
+    if hint is None:
+        hint = read_var(handle, base, 23)
     if not isinstance(hint, (int, float)):
         return None
     pattern = struct.pack('<I', int(hint) << 1)
@@ -132,7 +203,12 @@ def find_party_gold_slot(handle, base):
                 ):
                     found.append(slot)
                 pos += 1
-    return found[0] if len(found) == 1 else None
+    if found:
+        return found[0]
+    obj = find_game_party_object(handle)
+    if obj:
+        return obj + 16
+    return None
 
 
 def read_party_gold(handle, gold_slot):

@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="tubiao.jpg" alt="夏日狂想曲修改器 图标" width="320">
+</p>
+
 # 夏日狂想曲修改器 (Summer Memories Trainer)
 
 给《夏日狂想曲 / Summer Memories》用的单机修改器，双击打开窗口，点按钮就能改。
@@ -94,6 +98,7 @@ pyinstaller SummerMemoriesTrainer.spec
 | `start_trainer_gui.bat` | 双击启动入口（自动请求管理员权限） |
 | `tubiao.ico` | exe 桌面图标 |
 | `zuoshangjiao.ico` | 程序窗口图标 |
+| `tubiao.jpg` | 项目展示原图 |
 | `preview.png` | 界面预览图 |
 
 ## 注意
